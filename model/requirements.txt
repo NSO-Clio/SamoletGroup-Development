@@ -1,0 +1,9 @@
+fastapi
+python-multipart
+numpy<2.0
+catboost==1.2.5
+pandas
+pydantic-settings
+python-dotenv
+
+
