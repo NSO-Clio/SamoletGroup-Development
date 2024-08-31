@@ -6,15 +6,18 @@ from datetime import date, datetime
 from catboost import CatBoostClassifier, Pool as CatBoostPool
 import os
 from . import config
+from .scoringModel import ScoringModel
 
 class ProcessingInputInvalid(Exception):
 	pass
 
-class DataPreprocessor():
-	"""
-	Validates and prepares the user-input DataFrame for 
-	model processing.
-	"""
+class CatBoostModel:
+	def __init__(self):
+		self.cat_features = ['project_id', 'building_id', 'contractor_id', 'report_month', 'report_day', 'contract_year', 'contract_month']
+		cb_path = config.get_settings().catboost_model_path
+		self.model = CatBoostClassifier()
+		self.model.load_model(cb_path)
+	
 	def normalize_Xdf(self, df: pd.DataFrame) -> pd.DataFrame:
 		"""
 		Prepares the data frame to be used by the model.
@@ -33,27 +36,10 @@ class DataPreprocessor():
 		df = df.fillna(0.)
 
 		return df
-	def process(self, input_df: pd.DataFrame) -> pd.DataFrame:
-		"""
-		Validates and prepares the DataFrame.
-		Throws ProcessingInputInvalid if 
-		user input DataFrame is not valid.
-		"""
 
-		if not np.array_equal(input_df.columns, DATA_ALLOWED_COLUMNS):
-			raise ProcessingInputInvalid()
-
-		return self.normalize_Xdf(input_df)
-
-class CatBoostModel:
-	def __init__(self):
-		self.cat_features = ['project_id', 'building_id', 'contractor_id', 'report_month', 'report_day', 'contract_year', 'contract_month']
-		cb_path = config.get_settings().catboost_model_path
-		self.model = CatBoostClassifier()
-		self.model.load_model(cb_path)
-	
 	def predict(self, Xdf: pd.DataFrame) -> list[float]:
-		ndf = Xdf.drop(columns=["contract_id"])
+			
+		ndf = self.normalize_Xdf(Xdf).drop(columns=["contract_id"])
 		pool = CatBoostPool(ndf, cat_features=self.cat_features)
 		res = self.model.predict_proba(pool)[:,1]
 		return res.tolist()
@@ -67,13 +53,13 @@ class Model:
 	return the target output
 	"""
 	def __init__(self):
-		self.model = CatBoostModel()
+		self.model = ScoringModel()
 	
 	def predict(self, Xdf: pd.DataFrame) -> list[float]:
 		"""
 		Makes prediction and returns the result.
 		"""
-		return self.model(Xdf)
+		return self.model.predict_scoring(Xdf).tolist()
 
 	def __call__(self, Xdf: pd.DataFrame) -> list[float]:
 		return self.predict(Xdf)
@@ -86,11 +72,19 @@ class Predictor():
 	"""
 	
 	def __init__(self):
-		self.preprocessor = DataPreprocessor()
 		self.model = Model()
 
 	def predict(self, input_df: pd.DataFrame) -> list[float]:
-		normal_df = self.preprocessor.process(input_df)
-		outputs = self.model(normal_df)
+		if not self.validate_input(input_df):
+			raise ProcessingInputInvalid()
+			
+		outputs = self.model(input_df)
 		
 		return outputs
+
+	def validate_input(self, input_df: pd.DataFrame) -> bool:
+		if not np.array_equal(input_df.columns, DATA_ALLOWED_COLUMNS):
+			return False
+
+		return True
+	

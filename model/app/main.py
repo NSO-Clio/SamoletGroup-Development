@@ -31,7 +31,7 @@ def modelPredict(data: bytes) -> list[float]:
 	except ProcessingInputInvalid:
 		raise HTTPException(status.HTTP_400_BAD_REQUEST)
 		
-@app.post("/predict")
+@app.post("/predict", responses={400: {"detail": "Bad Request", "description": "The payload file cannot be processed properly"}})
 async def processTableFile(file: UploadFile) -> list[float]:
 	fileContents = await file.read()
 
