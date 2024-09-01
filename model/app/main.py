@@ -11,13 +11,13 @@ from concurrent.futures import ProcessPoolExecutor
 import pandas as pd
 import io
 
-from .model import Predictor, ProcessingInputInvalid
+from .model import Predictor, ProcessingInputInvalid, PredictionResult
 from . import config
 
 app = FastAPI()
 predictor = Predictor()
 
-def modelPredict(data: bytes) -> list[float]:
+def modelPredict(data: bytes) -> list[PredictionResult]:
 	bf = io.BytesIO(data)
 	try:
 		input_df = pd.read_csv(bf)
@@ -32,7 +32,7 @@ def modelPredict(data: bytes) -> list[float]:
 		raise HTTPException(status.HTTP_400_BAD_REQUEST)
 		
 @app.post("/predict", responses={400: {"detail": "Bad Request", "description": "The payload file cannot be processed properly"}})
-async def processTableFile(file: UploadFile) -> list[float]:
+async def processTableFile(file: UploadFile) -> list[PredictionResult]:
 	fileContents = await file.read()
 
 	loop = asyncio.get_running_loop()

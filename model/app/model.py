@@ -5,6 +5,8 @@ import numpy as np
 from datetime import date, datetime
 from catboost import CatBoostClassifier, Pool as CatBoostPool
 import os
+
+from pydantic import BaseModel
 from . import config
 from .scoringModel import ScoringModel
 
@@ -55,15 +57,20 @@ class Model:
 	def __init__(self):
 		self.model = ScoringModel()
 	
-	def predict(self, Xdf: pd.DataFrame) -> list[float]:
+	def predict(self, Xdf: pd.DataFrame) -> np.ndarray:
 		"""
 		Makes prediction and returns the result.
 		"""
-		return self.model.predict_scoring(Xdf).tolist()
+		return self.model.predict_scoring(Xdf)
 
-	def __call__(self, Xdf: pd.DataFrame) -> list[float]:
+	def __call__(self, Xdf: pd.DataFrame) -> np.ndarray:
 		return self.predict(Xdf)
 
+class PredictionResult(BaseModel):
+	contract_id: str
+	report_date: str
+	score: float
+	
 class Predictor():
 	"""
 	Pass user input data frame to this class and get output results.
@@ -74,13 +81,26 @@ class Predictor():
 	def __init__(self):
 		self.model = Model()
 
-	def predict(self, input_df: pd.DataFrame) -> list[float]:
+	def predict(self, input_df: pd.DataFrame) -> list[PredictionResult]:
 		if not self.validate_input(input_df):
 			raise ProcessingInputInvalid()
 			
 		outputs = self.model(input_df)
+
+		res_df = pd.DataFrame([
+			input_df['contract_id'], 
+			input_df['report_date'],
+			outputs
+		]).transpose().rename(columns={'Unnamed 0': 'score'})
+
+		results = res_df.to_dict(orient='index').values()
+		results_pr = list(map(lambda x: PredictionResult(
+			contract_id=str(x['contract_id']),
+			report_date=str(x['report_date']),
+			score=float(x['score'])
+		), results))
 		
-		return outputs
+		return results_pr
 
 	def validate_input(self, input_df: pd.DataFrame) -> bool:
 		if not np.array_equal(input_df.columns, DATA_ALLOWED_COLUMNS):

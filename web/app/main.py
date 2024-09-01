@@ -1,30 +1,50 @@
 import pandas as pd
 from flask import Flask, render_template, request, redirect, url_for, flash
+import requests
+
+import dotenv
+dotenv.load_dotenv()
+from . import config
 
 app = Flask(__name__)
-app.secret_key = "secret_key"
-
+config.validate_config(app)
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
+@app.post('/upload')
+def upload_file():
+    file = request.files['file']
+    if file:
+        bff = file.stream
 
-@app.route('/upload', methods=['GET', 'POST'])
-def upload():
-    if request.method == 'POST':
-        file = request.files['file']
-        if file:
-            bff = file.stream
-            df = pd.read_csv(bff)
+        resp = requests.post(
+                f"{app.config['MODEL_HOST']}/predict",
+                files={'file': file.stream}
+        )
 
-            # тут обращаемся к модельке
-
-            df['report_date'] = df['report_date'].apply(lambda s: s[8:10] + '.' + s[5:7] + '.' + s[0:4])
-            df['score'] = df['score'].apply(lambda x: round(x * 100))
-            return render_template('table.html', data=df.to_dict(orient='records'))
-        else:
-            flash('Разрешены только CSV файлы')
+        if resp.status_code == 400:
+            flash('Невозможно обработать файл')
             return redirect(request.url)
 
-    return redirect(url_for('index'))
+        resp.raise_for_status()
+
+        data = resp.json()
+        def normalize_data(x):
+            s = x['report_date']
+            x['report_date'] = s[8:10] + '.' + s[5:7] + '.' + s[0:4]
+            x['score'] = round(x['score'] * 100)
+
+            return x
+
+        data = list(map(normalize_data, data))
+
+        return render_template('table.html', data=data)
+    else:                
+        flash('Невозможно обработать файл')
+        return redirect(request.url)
+
+@app.get('/upload')
+def upload_view():
+        return redirect(url_for('index'))
