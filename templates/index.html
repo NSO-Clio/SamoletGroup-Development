@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLIO</title>
+    <link rel="icon" href="{{ url_for('static', filename='icon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body id="index-body">
+    <div class="upload-area" id="upload-area"> Перетащите или выберите CSV файл </div>
+    <form id="file-form" method="POST" enctype="multipart/form-data" action="/upload">
+        <input type="file" id="file-input" name="file" accept=".csv" style="display:none;">
+    </form>
+    <div class="messages">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <p>{{ message }}</p>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+    <script>
+        const uploadArea = document.getElementById('upload-area');
+        const fileInput = document.getElementById('file-input');
+        const fileForm = document.getElementById('file-form');
+
+        uploadArea.addEventListener('click', () => {
+            uploadArea.classList.add('active');
+            fileInput.click();
+            setTimeout(() => {
+                uploadArea.classList.remove('active');
+            }, 300);
+           });
+
+        uploadArea.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            uploadArea.classList.add('active');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('active');
+        });
+
+        uploadArea.addEventListener('drop', (event) => {
+            event.preventDefault();
+            uploadArea.classList.remove('active');
+            if (event.dataTransfer.files.length > 0) {
+                fileInput.files = event.dataTransfer.files;
+                fileForm.submit();
+            }
+        });
+
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                fileForm.submit();
+            }
+        });
+    </script>
+</body>
+</html>
