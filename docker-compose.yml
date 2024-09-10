@@ -1,10 +1,36 @@
-root = true
+services:
+  web_production:
+    build:
+      context: web
+    networks:
+      aiijc_development:
+        ipv4_address: 10.5.1.10
+    environment:
+      FLASK_MODEL_HOST: "http://model_production:8000"
 
-[*]
-indent_style = tab
-indent_size = 8
-tab_width = 8
+    # Fixes high memory usage by uwsgi (about 8 GB)
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - 5000:80
 
-[*.yml]
-indent_style = space
-indent_size = 2
+  model_production:
+    build:
+      context: model
+    networks:
+      aiijc_development:
+        ipv4_address: 10.5.1.11
+    volumes:
+      - ./model/weights:/weights
+    environment:
+      SCORING_MODEL_PATH: /weights/RandomForestClassifier_scoring.pickle
+      SCORING_MEAN_MEDIAN_IMPUTER_PATH: /weights/MeanMedianImputer.pickle
+
+networks:
+  aiijc_development:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.5.0.0/16
