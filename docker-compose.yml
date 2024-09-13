@@ -1,4 +1,10 @@
 services:
+  web_cache:
+    image: redis:alpine
+    restart: always
+    networks:
+      aiijc_development:
+
   web_production:
     build:
       context: web
@@ -7,6 +13,7 @@ services:
         ipv4_address: 10.5.1.10
     environment:
       FLASK_MODEL_HOST: "http://model_production:8000"
+      FLASK_REDIS_CONNECTION_URL: "redis://web_cache:6379/0"
 
     # Fixes high memory usage by uwsgi (about 8 GB)
     ulimits:
@@ -15,6 +22,7 @@ services:
         hard: 65536
     ports:
       - 5000:80
+
 
   model_production:
     build:

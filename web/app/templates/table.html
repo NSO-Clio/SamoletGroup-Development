@@ -8,39 +8,45 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body id="table-body">
-    <div class="sort-buttons">
-        <div class="sort-container">
-            <div class="column-title">ID подрядчика</div>
-            <button class="sort-button" data-column="contract_id" data-order="asc">&gt;</button>
+    <div class="table_container">
+        <div class="nav_buttons">
+            <a href="/"><img src="{{ url_for('static', filename='exit.png') }}" height=25/></a>
+            <a href="/tickets/{{ ticket_id }}/csv"><img src="{{ url_for('static', filename='downloads.png') }}" height=25/></a>
         </div>
-        <div class="sort-container">
-            <div class="column-title">Дата</div>
-            <button class="sort-button" data-column="report_date" data-order="asc">&gt;</button>
+        <div class="sort-buttons">
+            <div class="sort-container">
+                <div class="column-title">ID подрядчика</div>
+                <button class="sort-button" data-column="contract_id" data-order="asc">&gt;</button>
+            </div>
+            <div class="sort-container">
+                <div class="column-title">Дата</div>
+                <button class="sort-button" data-column="report_date" data-order="asc">&gt;</button>
+            </div>
+            <div class="sort-container">
+                <div class="column-title">Вероятность дефолта</div>
+                <button class="sort-button" data-column="score" data-order="asc">&gt;</button>
+            </div>
         </div>
-        <div class="sort-container">
-            <div class="column-title">Вероятность дефолта</div>
-            <button class="sort-button" data-column="score" data-order="asc">&gt;</button>
-        </div>
-    </div>
 
-    <table id="dataframe">
-        <thead>
-            <tr>
-                <th><i>ID подрядчика</i></th>
-                <th><i>Дата</i></th>
-                <th><i>Вероятность дефолта</i></th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for line in data %}
-            <tr>
-                <td>{{ line.contract_id }}</td>
-                <td>{{ line.report_date }}</td>
-                <td>{{ line.score }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+        <table id="dataframe">
+            <thead>
+                <tr>
+                    <th><i>ID подрядчика</i></th>
+                    <th><i>Дата</i></th>
+                    <th><i>Вероятность дефолта</i></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for line in data %}
+                <tr>
+                    <td>{{ line.contract_id }}</td>
+                    <td>{{ line.report_date }}</td>
+                    <td>{{ line.score }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
