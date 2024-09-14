@@ -1,24 +1,23 @@
 # web
 
-This is a service with web pages/backend logic for the task.
+Это - сервис с бэкенд/фронтенд логикой.
 
-Before run it you should also set `FLASK_MODEL_HOST` environment variable
-with the model destination host (like http://127.0.0.1:8000)
+Перед тем, как запускать его, необходимо установить `FLASK_MODEL_HOST` как переменную среды с адресом модели (например, http://127.0.0.1:8000). Также можно использовать .env файл.
 
+Можно использовать как версию с докером, так и запускать локально.
 
-The service may be run inside the docker container.
-
-If you want to run it locally, install the required dependencies and do
+# Local version
+Для запуска локально необходимо установить зависимости из requirements.txt и 
 ```
 FLASK_MODEL_HOST="http://127.0.0.1:8000" python -m app
 ```
-Or use .env file with that environment.
 
-If you want to run inside docker, build the image
+# Docker version
+Для того, чтобы запустить в докере, необходимо создать образ:
 ```
 docker build -t aijc_web .
 ```
-And run the container
+И запустить контейнер
 ```
 docker run --rm \
 	-p 8000:80 \
@@ -26,4 +25,4 @@ docker run --rm \
 	aijc_web
 ```
 
-Note, that for docker you should forward port with your model to the web. This may be done via, for example, docker networks.
+Стоит отметить, что в случае с докером, необходимо, чтобы внутри контейнера был доступен порт с моделью. Сделать это можно, к примеру, с помощью сетей докера.

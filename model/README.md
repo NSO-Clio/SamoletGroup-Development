@@ -1,27 +1,39 @@
-This is a microservice that may be used to easily upscale models.
-You can use it with both dockerized and normal versions.
+# Model
 
-In both cases you should set the environment variable with path to model weights. If you run the module normally, set it with 
+Это - микросервис, который может быть использован, чтобы легко разворачивать инстансы моделей.
+Доступны и докеризированная, и обычная версия, на локальной машине.
+
+В обоих случаях необходимо установить переменные серды с путём до весом модели. Если запускать модель на локальной машине, поставить это можно с
+
 
 ```
 export SCORING_MODEL_PATH="/path_to_model" SCORING_MEAN_MEDIAN_IMPUTER_PATH="/path_to_mmimputer"
 ```
-Alternatively you may create the .env file and specify your variables there.
+Также можно создать .env файл и прописать это там.
 
-For docker you should set both environment variables and mount the volume with weights.
+Для докера необходимо поставить так:
 ```
 docker run -e SCORING_MODEL_PATH="/weights/model" -e SCORING_MEAN_MEDIAN_IMPUTER_PATH="/weights/mmimputer" -v ./weights:/weights ...
 ```
 
-Build the docker container with 
+## Docker версия
+
+Необходимо собрать докер образ с
 ```
 docker build -t aij_model .
 ```
-Run with
+И запустить его:
 ```
 docker run -e SCORING_MODEL_PATH="/weights/model" \
 	-e SCORING_MEAN_MEDIAN_IMPUTER_PATH="/weights/mmimputer" \
 	-v ./weights:/weights \
 	-p 8000:8000 \
 	aij_model
+```
+
+## Запуск на локальной машине
+
+Необходимо установить пакеты из requirements.txt в оболочку с python 3.11 и запустить сервер для разработчика через
+```
+fastapi dev app
 ```
