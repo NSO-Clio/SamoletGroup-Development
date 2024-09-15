@@ -106,3 +106,42 @@ th, td {
     color: #d92823;
     background-color: #d99a98;
 }
+.search-container {
+    margin-bottom: 20px;
+    width: 60%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+.search-container input {
+    font-family: 'Roboto', sans-serif;
+    font-style: italic;
+    font-weight: 700;
+    width: 80%;
+    padding: 10px;
+    border-radius: 2px;
+    border: 2px solid #ccc;
+}
+.search-container button {
+    font-family: 'Roboto', sans-serif;
+    font-style: italic;
+    font-weight: 700;
+    margin-left: 10px;
+    padding: 10px 20px;
+    background-color: #1887FC;
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.2s;
+}
+.search-container button:hover {
+    background-color: #0056b3;
+}
+.no-results {
+    font-size: 18px;
+    font-style: italic;
+    color: #d9534f;
+    text-align: center;
+    margin-top: 10px;
+}

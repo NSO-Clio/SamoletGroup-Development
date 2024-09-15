@@ -13,6 +13,7 @@
             <a href="/"><img src="{{ url_for('static', filename='exit.png') }}" height=25/></a>
             <a href="/tickets/{{ ticket_id }}/csv"><img src="{{ url_for('static', filename='downloads.png') }}" height=25/></a>
         </div>
+
         <div class="sort-buttons">
             <div class="sort-container">
                 <div class="column-title">ID подрядчика</div>
@@ -26,6 +27,11 @@
                 <div class="column-title">Вероятность дефолта</div>
                 <button class="sort-button" data-column="score" data-order="asc">&gt;</button>
             </div>
+        </div>
+
+        <div class="search-container">
+            <input type="text" id="searchInput" placeholder="Поиск по ID подрядчика">
+            <button id="searchButton">Найти</button>
         </div>
 
         <table id="dataframe">
@@ -46,11 +52,15 @@
                 {% endfor %}
             </tbody>
         </table>
+
+        <div class="no-results" id="noResults" style="display:none;">Не найдено</div>
+
     </div>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
         var tableData = {{ data | tojson }};
+        var filteredData = tableData;
 
         function parseDate(stringDate) {
             var parts = stringDate.split('.');
@@ -72,12 +82,34 @@
                          '</tr>';
             });
             $('#dataframe tBody').html(tBody);
+
+            if (data.length === 0) {
+                $('#noResults').show();
+                $('#dataframe thead').hide();
+            }
+            else {
+                $('#noResults').hide();
+                $('#dataframe thead').show();
+            }
+        }
+
+        function searchById() {
+            var searchValue = $('#searchInput').val().trim();
+            if (searchValue === '') {
+                filteredData = tableData;
+            } else {
+                filteredData = tableData.filter(function(row) {
+                    return row.contract_id.toString() === searchValue;
+                });
+            }
+            renderTable(filteredData);
+
         }
 
         function sortData(column, order) {
-            tableData.sort(function(a, b) {
-                var valueA = column === 'report_date' ? parseDate(a[column]) : a[column];
-                var valueB = column === 'report_date' ? parseDate(b[column]) : b[column];
+            filteredData.sort(function(a, b) {
+                var valueA = column === 'report_date' ? new Date(a[column].split('.').reverse().join('-')) : a[column];
+                var valueB = column === 'report_date' ? new Date(b[column].split('.').reverse().join('-')) : b[column];
 
                 if (order === 'asc') {
                     return (valueA > valueB) ? 1 : ((valueA < valueB) ? -1 : 0);
@@ -86,10 +118,14 @@
                     return (valueA < valueB) ? 1 : ((valueA > valueB) ? -1 : 0);
                 }
             });
-            renderTable(tableData);
+            renderTable(filteredData);
         }
 
         $(document).ready(function() {
+            $('#searchButton').on('click', function() {
+                searchById();
+            });
+
             $('.sort-button').on('click', function() {
                 var column = $(this).data('column');
                 var order = $(this).data('order');
@@ -97,13 +133,18 @@
                 if (order === 'asc') {
                     $(this).data('order', 'desc');
                     $(this).html('&lt;');
-                }
-                else {
+                } else {
                     $(this).data('order', 'asc');
                     $(this).html('&gt;');
                 }
             });
-            renderTable(tableData);
+            $('#searchInput').on('keypress', function(event) {
+                if (event.key === "Enter") {
+                    event.preventDefault();
+                    searchById();
+                }
+            });
+            renderTable(filteredData);
         });
     </script>
 </body>
