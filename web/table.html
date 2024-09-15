@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLIO</title>
+    <link rel="icon" href="{{ url_for('static', filename='icon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body id="table-body">
+    <div class="sort-buttons">
+        <div class="sort-container">
+            <div class="column-title">ID подрядчика</div>
+            <button class="sort-button" data-column="contract_id" data-order="asc">&gt;</button>
+        </div>
+        <div class="sort-container">
+            <div class="column-title">Дата</div>
+            <button class="sort-button" data-column="report_date" data-order="asc">&gt;</button>
+        </div>
+        <div class="sort-container">
+            <div class="column-title">Вероятность дефолта</div>
+            <button class="sort-button" data-column="score" data-order="asc">&gt;</button>
+        </div>
+    </div>
+
+    <div class="search-container">
+        <input type="text" id="searchInput" placeholder="Поиск по ID подрядчика">
+        <button id="searchButton">Найти</button>
+    </div>
+
+    <table id="dataframe">
+        <thead>
+            <tr>
+                <th><i>ID подрядчика</i></th>
+                <th><i>Дата</i></th>
+                <th><i>Вероятность дефолта</i></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for line in data %}
+            <tr>
+                <td>{{ line.contract_id }}</td>
+                <td>{{ line.report_date }}</td>
+                <td>{{ line.score }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="no-results" id="noResults" style="display:none;">Не найдено</div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        var tableData = {{ data | tojson }};
+        var filteredData = tableData;
+
+        function parseDate(stringDate) {
+            var parts = stringDate.split('.');
+            return new Date(parts[2], parts[1] - 1, parts[0]);
+        }
+
+        function renderTable(data) {
+            var tBody = '';
+            data.forEach(function(line) {
+                if (line.score >= 75) {
+                    tBody += '<tr class="danger">';
+                }
+                else {
+                    tBody += '<tr>';
+                }
+                tBody += '<td>' + line.contract_id + '</td>' +
+                         '<td>' + line.report_date + '</td>' +
+                         '<td>' + line.score + '%</td>' +
+                         '</tr>';
+            });
+            $('#dataframe tBody').html(tBody);
+
+            if (data.length === 0) {
+                $('#noResults').show();
+                $('#dataframe thead').hide();
+            }
+            else {
+                $('#noResults').hide();
+                $('#dataframe thead').show();
+            }
+        }
+
+        $('#searchButton').on('click', function() {
+            var searchValue = $('#searchInput').val().trim();
+            if (searchValue === '') {
+                filteredData = tableData;
+            } else {
+                filteredData = tableData.filter(function(row) {
+                    return row.contract_id.toString() === searchValue;
+                });
+            }
+            renderTable(filteredData);
+        });
+
+        function sortData(column, order) {
+            filteredData.sort(function(a, b) {
+                var valueA = column === 'report_date' ? new Date(a[column].split('.').reverse().join('-')) : a[column];
+                var valueB = column === 'report_date' ? new Date(b[column].split('.').reverse().join('-')) : b[column];
+
+                if (order === 'asc') {
+                    return (valueA > valueB) ? 1 : ((valueA < valueB) ? -1 : 0);
+                }
+                else {
+                    return (valueA < valueB) ? 1 : ((valueA > valueB) ? -1 : 0);
+                }
+            });
+            renderTable(filteredData);
+        }
+
+        $(document).ready(function() {
+            $('#searchButton').on('click', function() {
+                searchById();
+            });
+
+            $('.sort-button').on('click', function() {
+                var column = $(this).data('column');
+                var order = $(this).data('order');
+                sortData(column, order);
+                if (order === 'asc') {
+                    $(this).data('order', 'desc');
+                    $(this).html('&lt;');
+                } else {
+                    $(this).data('order', 'asc');
+                    $(this).html('&gt;');
+                }
+            });
+            renderTable(filteredData);
+        });
+    </script>
+</body>
+</html>
