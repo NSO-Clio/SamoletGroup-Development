@@ -34,6 +34,8 @@ services:
       - ./model/weights:/weights
     environment:
       SCORING_MODEL_PATH: /weights/RandomForestClassifier_scoring.pickle
+      SCORING_CBC_PATH: /weights/CatBoostClassifier_scoring.pickle
+      SCORING_XGBC_PATH: /weights/XGBClassifier_scoring.pickle
       SCORING_MEAN_MEDIAN_IMPUTER_PATH: /weights/MeanMedianImputer.pickle
 
 networks:

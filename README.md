@@ -12,7 +12,7 @@
 docker compose up --build
 ```
 
-Следует отметить, что если запускать так, в папке model/weights должны находиться веса моделей c названиями MeanMedianImputer.pickle и RandomForestClassifier_scoring.pickle для нормализатора и модели соответственно.
+Следует отметить, что если запускать так, в папке model/weights должны находиться веса моделей c названиями MeanMedianImputer.pickle, CatBoostClassifier_scoring.pickle, XGBClassifier_scoring.pickle и RandomForestClassifier_scoring.pickle для нормализатора и ансамбля из моделей соответственно.
 
 Чтобы запустить development версии серверов, необходимо вручную создать окружение, прописать переменные среды в .env файлах и независимо запустить команды старта сервера (подробнее - в README к model/ и web/)
 

@@ -7,13 +7,13 @@
 
 
 ```
-export SCORING_MODEL_PATH="/path_to_model" SCORING_MEAN_MEDIAN_IMPUTER_PATH="/path_to_mmimputer"
+export SCORING_MODEL_PATH="/path_to_model" SCORING_CBC_PATH="/path_to_catboost_model" SCORING_XGBC_PATH="/path_to_xgb_model" SCORING_MEAN_MEDIAN_IMPUTER_PATH="/path_to_mmimputer"
 ```
 Также можно создать .env файл и прописать это там.
 
 Для докера необходимо поставить так:
 ```
-docker run -e SCORING_MODEL_PATH="/weights/model" -e SCORING_MEAN_MEDIAN_IMPUTER_PATH="/weights/mmimputer" -v ./weights:/weights ...
+docker run -e SCORING_MODEL_PATH="/weights/model" -e SCORING_CBC_PATH="/path_to_catboost_model" -e SCORING_XGBC_PATH="/path_to_xgb_model" -e SCORING_MEAN_MEDIAN_IMPUTER_PATH="/weights/mmimputer" -v ./weights:/weights ...
 ```
 
 ## Docker версия
@@ -25,6 +25,8 @@ docker build -t aij_model .
 И запустить его:
 ```
 docker run -e SCORING_MODEL_PATH="/weights/model" \
+	-e SCORING_CBC_PATH="/path_to_catboost_model" \
+	-e SCORING_XGBC_PATH="/path_to_xgb_model" \
 	-e SCORING_MEAN_MEDIAN_IMPUTER_PATH="/weights/mmimputer" \
 	-v ./weights:/weights \
 	-p 8000:8000 \

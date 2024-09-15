@@ -13,42 +13,6 @@ from .scoringModel import ScoringModel
 class ProcessingInputInvalid(Exception):
 	pass
 
-class CatBoostModel:
-	def __init__(self):
-		self.cat_features = ['project_id', 'building_id', 'contractor_id', 'report_month', 'report_day', 'contract_year', 'contract_month']
-		cb_path = config.get_settings().catboost_model_path
-		self.model = CatBoostClassifier()
-		self.model.load_model(cb_path)
-	
-	def normalize_Xdf(self, df: pd.DataFrame) -> pd.DataFrame:
-		"""
-		Prepares the data frame to be used by the model.
-		"""
-		df = df.copy()
-
-		df['report_date'] = df['report_date'].map(lambda x: date.fromisoformat(x))
-		df['report_month'] = df['report_date'].map(lambda x: x.month)
-		df['report_day'] = df['report_date'].map(lambda x: x.day)
-
-		df['contract_date'] = df['contract_date'].map(lambda x: datetime.fromisoformat(x))
-		df['contract_year'] = df['contract_date'].map(lambda x: x.year)
-		df['contract_month'] = df['contract_date'].map(lambda x: x.month)
-
-		df = df.drop(columns=['report_date', 'contract_date'])
-		df = df.fillna(0.)
-
-		return df
-
-	def predict(self, Xdf: pd.DataFrame) -> list[float]:
-			
-		ndf = self.normalize_Xdf(Xdf).drop(columns=["contract_id"])
-		pool = CatBoostPool(ndf, cat_features=self.cat_features)
-		res = self.model.predict_proba(pool)[:,1]
-		return res.tolist()
-	
-	def __call__(self, Xdf: pd.DataFrame) -> list[float]:
-		return self.predict(Xdf)
-
 class Model:
 	"""
 	Processes the normalized data frame (after DataPreprocessor stage) and
