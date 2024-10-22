@@ -4,7 +4,7 @@
 }
 body {
     font-family: 'Roboto', sans-serif;
-    font-weight: 700;
+    /* font-weight: 700; */
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -19,7 +19,7 @@ body#table-body {
     padding: 20px;
 }
 .upload-area {
-    width: 28%;
+    min-width: 28%;
     height: 35vh;
     border: 3px dashed #1887FC;
     display: flex;
@@ -28,10 +28,13 @@ body#table-body {
     background-color: #ffffff;
     color: #1887FC;
     font-size: 20px;
+    font-weight: 700;
     text-align: center;
     border-radius: 20px;
     cursor: pointer;
     transition: background-color 0.3s ease;
+    padding: 15px;
+    margin: 20px;
 }
 .upload-area.active {
     background-color: #F4F6FB;
@@ -144,4 +147,24 @@ th, td {
     color: #d9534f;
     text-align: center;
     margin-top: 10px;
+}
+
+.default_section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.ds_or {
+    display: block;
+    width: 100%;
+    text-align: center;
+    border
+}
+
+.ds_default {
+    display: block;
+    margin-top: 10px;
+    width: 100%;
+    text-align: center;
 }

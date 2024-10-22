@@ -12,6 +12,10 @@
     <form id="file-form" method="POST" enctype="multipart/form-data" action="/upload">
         <input type="file" id="file-input" name="file" accept=".csv" style="display:none;">
     </form>
+    <div class="default_section">
+        <div class="ds_or">или</div>
+        <a class="ds_default" href="{{ url_for('default_view') }}">Посмотрите готовый результат по тестовой выборке</a>
+    </div>
     <div class="messages">
         {% with messages = get_flashed_messages() %}
             {% if messages %}
