@@ -10,7 +10,7 @@ services:
       context: web
     networks:
       aiijc_development:
-        ipv4_address: 10.5.1.10
+        ipv4_address: 10.6.1.10
     environment:
       FLASK_MODEL_HOST: "http://model_production:8000"
       FLASK_REDIS_CONNECTION_URL: "redis://web_cache:6379/0"
@@ -29,18 +29,15 @@ services:
       context: model
     networks:
       aiijc_development:
-        ipv4_address: 10.5.1.11
+        ipv4_address: 10.6.1.11
     volumes:
       - ./model/weights:/weights
     environment:
-      SCORING_MODEL_PATH: /weights/RandomForestClassifier_scoring.pickle
-      SCORING_CBC_PATH: /weights/CatBoostClassifier_scoring.pickle
-      SCORING_XGBC_PATH: /weights/XGBClassifier_scoring.pickle
-      SCORING_MEAN_MEDIAN_IMPUTER_PATH: /weights/MeanMedianImputer.pickle
+      WEIGHTS_PATH: /weights
 
 networks:
   aiijc_development:
     driver: bridge
     ipam:
       config:
-        - subnet: 10.5.0.0/16
+        - subnet: 10.6.1.0/24

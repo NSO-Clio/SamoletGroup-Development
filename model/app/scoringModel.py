@@ -1,16 +1,32 @@
-
+from catboost.core import json
+from feature_engine.imputation import MeanMedianImputer
+from sklearn.impute import SimpleImputer
+import pickle
+from sklearn.linear_model import LogisticRegression, SGDClassifier
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.tree import DecisionTreeClassifier
 from catboost import CatBoostClassifier
 from xgboost import XGBClassifier
-from datetime import datetime, timedelta
+from sklearn.model_selection import KFold
 import pandas as pd
 import numpy as np
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.metrics import roc_auc_score, roc_curve, f1_score, precision_score, recall_score, accuracy_score
+from sklearn.preprocessing import label_binarize
+from pathlib import Path
+from tqdm import tqdm
+tqdm.pandas()
+import time
+
+from . import modelGlobs
+
+from datetime import datetime, timedelta
+import calendar
 import holidays
-import pickle
+
 import warnings
 from sklearn.exceptions import ConvergenceWarning
-
-from .config import get_settings
 
 # Игнорирование предупреждений
 warnings.simplefilter('ignore')
@@ -23,118 +39,50 @@ np.random.seed(seed)
 
 
 class ScoringModel:
-    def __init__(self) -> None:
+    def __init__(self, weights_path: Path) -> None:
         """ Инициализация модели ScoringModel: загрузка предобученной модели и импера. """
+        
         # Путь к сохраненной модели и имперу
-        model_path = get_settings().scoring_model_path
-        sub_model_cat_path = get_settings().scoring_cbc_path
-        sub_model_xgb_path = get_settings().scoring_xgbc_path
-        meanMedianImputer_path = get_settings().scoring_mean_median_imputer_path
+        sub_model_rfc_path = weights_path / "RandomForestClassifier_scoring.pickle"
+        sub_model_cat_path = weights_path / "CatBoostClassifier_scoring.pickle"
+        sub_model_xgb_path = weights_path / "XGBClassifier_scoring.pickle"
+        meanMedianImputer_path = weights_path / "MeanMedianImputer.pickle"
+        graph_path = weights_path / "graph.csv"
+        data_columns_path = weights_path / "data_columns.json"
+        rfc_graph_scoring_path = weights_path / "RandomForestClassifier_SUB_model_scoring.pickle"
+        unic_data_path = weights_path / "unic_data.csv"
+        distance_dict_path = weights_path / "distance_dict.json"
 
-        # Загрузка модели и импера из файлов
-        self.__model = pickle.load(open(model_path, "rb"))
-        self.__sub_model_cat = pickle.load(open(sub_model_cat_path, "rb"))
-        self.__sub_model_xgb = pickle.load(open(sub_model_xgb_path, "rb"))
-        self.__imputer = pickle.load(open(meanMedianImputer_path, "rb"))
+        # Загрузка модели и импутера из файлов
+        with open(sub_model_rfc_path, "rb") as fd:
+            self.__sub_model_rfc = pickle.load(fd)
+        with open(sub_model_cat_path, "rb") as fd:
+            self.__sub_model_cat = pickle.load(fd)
+        with open(sub_model_xgb_path, "rb") as fd:
+            self.__sub_model_xgb = pickle.load(fd)
+        with open(meanMedianImputer_path, "rb") as fd:
+            self.__imputer = pickle.load(fd)
+        with open(rfc_graph_scoring_path, "rb") as fd:
+            self.__rfc_graph_scoring = pickle.load(fd)
+        self.__graph = pd.read_csv(graph_path).drop(columns=['Unnamed: 0'])
+        with open(data_columns_path, "r") as fd:
+            self.__data_columns = list(json.load(fd).keys())
+        self.__unic_data_df = pd.read_csv(unic_data_path)
+        with open(distance_dict_path, "r") as fd:
+            self.__distance_dict: dict = json.load(fd)
+            self.__distance_dict = {int(k): v for k, v in self.__distance_dict.items()}
+
+
+        self.__data_del_par = modelGlobs.inference_data_del_par
+        self.__nan_par = modelGlobs.inference_nan_par
+        self.__final_cols = modelGlobs.inference_final_cols
+        self.__graph_del_col = modelGlobs.graph_del_col
+        self.__graph_x_cols = modelGlobs.graph_x_cols
 
         # Инициализация российских праздников
         self.__ru_holidays = holidays.Russia()
 
-        # Колонки, которые нужно удалить
-        self.__empty_par = [
-            'agg_all_contracts__g_contract__abs_change_price_last_ds__isMain__last__ALL_TIME',
-            'agg_all_contracts__g_contract__abs_change_price_last_ds__isMain__mean__ALL_TIME',
-            'agg_all_contracts__g_contract__rel_change_price_last_ds__isMain__last__ALL_TIME',
-            'agg_all_contracts__g_contract__rel_change_price_last_ds__isMain__mean__ALL_TIME',
-            'agg_FinanceAndTaxesFTS__g_contractor__TaxPenaltiesSum__last__ALL_TIME'
-        ]
-
-        self.__nan_par = [
-            'agg_scontrol__g_contractor__close_delay__defect_type_repair__mean__ALL_TIME',
-            'agg_scontrol__g_contractor__close_delay__defect_type_author_supervision__mean__ALL_TIME',
-            'agg_scontrol__g_contractor__close_delay__defect_type_GR__mean__ALL_TIME',
-            'agg_scontrol__g_contractor__close_delay__defect_type_labour_protection__mean__ALL_TIME',
-            'agg_scontrol__g_contractor__close_delay__defect_type_general_contractor__mean__ALL_TIME',
-            'agg_scontrol__g_contractor__close_delay__defect_type_arch_supervision__mean__ALL_TIME',
-            'agg_scontrol__g_contractor__close_delay__defect_type_tech_supervision__mean__ALL_TIME',
-            'agg_scontrol__g_contractor__close_delay__defect_type_app__mean__ALL_TIME',
-            'agg_sroomer__g_contractor__sroomer_id__count__3M',
-            'agg_sroomer__g_contractor__sroomer_id__count__6M',
-            'agg_sroomer__g_contractor__sroomer_id__count__12M',
-            'agg_sroomer__g_contractor__sroomer_id__count__ALL_TIME',
-            'agg_BoardOfDirectors__g_contractor__Name__count__ALL_TIME',
-            'agg_ConsolidatedIndicator__g_contractor__Index__Overall__mean__ALL_TIME',
-            'agg_ConsolidatedIndicator__g_contractor__Index__FailureScore__mean__ALL_TIME',
-            'agg_ConsolidatedIndicator__g_contractor__Index__PaymentIndex__mean__ALL_TIME',
-            'agg_ConsolidatedIndicator__g_contractor__Index__IndexOfDueDiligence__mean__ALL_TIME',
-            'agg_spark_extended_report__g_contractor__EstimatedClaimsSum__last__ALL_TIME',
-            'agg_spark_extended_report__g_contractor__EstimatedLiabilitiesSum__last__ALL_TIME',
-            'agg_spark_extended_report__g_contractor__EstimatedNetLiabilitiesSum__last__ALL_TIME',
-            'agg_spark_extended_report__g_contractor__PledgeeActiveCount__last__ALL_TIME',
-            'agg_spark_extended_report__g_contractor__PledgeeCeasedCount__last__ALL_TIME',
-            'agg_spark_extended_report__g_contractor__PledgerActiveCount__last__ALL_TIME',
-            'agg_spark_extended_report__g_contractor__PledgerCeasedCount__last__ALL_TIME',
-            'agg_spark_extended_report__g_contractor__CompanySizeRevenue__last__ALL_TIME',
-            'agg_spark_extended_report__g_contractor__CreditLimitSum__last__ALL_TIME',
-            'agg_Finance__g_contractor__Value__FixedAssets__last__ALL_TIME',
-            'agg_Finance__g_contractor__Value__CurrentAssets__last__ALL_TIME',
-            'agg_Finance__g_contractor__Value__Capital__last__ALL_TIME',
-            'agg_Finance__g_contractor__Value__LongLiabilities__last__ALL_TIME',
-            'agg_Finance__g_contractor__Value__ShortLiabilities__last__ALL_TIME',
-            'agg_Finance__g_contractor__Value__Balance__last__ALL_TIME',
-            'agg_Finance__g_contractor__Value__Revenue_y__last__ALL_TIME',
-            'agg_Finance__g_contractor__Value__NetProfit_y__last__ALL_TIME',
-            'agg_Finance__g_contractor__Value__CostPrice_y__last__ALL_TIME',
-            'agg_FinanceAndTaxesFTS__g_contractor__Expenses__last__ALL_TIME',
-            'agg_FinanceAndTaxesFTS__g_contractor__Income__last__ALL_TIME',
-            'agg_FinanceAndTaxesFTS__g_contractor__TaxArrearsSum__last__ALL_TIME',
-            'agg_FinanceAndTaxesFTS__g_contractor__TaxesSum__last__ALL_TIME',
-            'agg_ArbitrationCases__g_contractor__DefendantSum__sum__12M',
-            'agg_ArbitrationCases__g_contractor__DefendantSum__sum__12_24M',
-            'agg_ArbitrationCases__g_contractor__DefendantSum__sum__12_36M',
-            'agg_ArbitrationCases__g_contractor__DefendantSum__sum__12_48M',
-            'agg_ArbitrationCases__g_contractor__DefendantSum__sum__ALL_TIME',
-            'agg_ArbitrationCases__g_contractor__PlaintiffSum__sum__12M',
-            'agg_ArbitrationCases__g_contractor__PlaintiffSum__sum__12_24M',
-            'agg_ArbitrationCases__g_contractor__PlaintiffSum__sum__12_36M',
-            'agg_ArbitrationCases__g_contractor__PlaintiffSum__sum__12_48M',
-            'agg_ArbitrationCases__g_contractor__PlaintiffSum__sum__ALL_TIME',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__1W',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__2W',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__4W',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__8W',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__12W',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__26W',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__52W',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__ALL_TIME'
-        ]
-
-        # Колонки для удаления в процессе обработки данных
-        self.__data_del_par = [
-            'project_id', 'contractor_id', 'building_id', 'contract_id',
-            'agg_BoardOfDirectors__g_contractor__Name__count__ALL_TIME',
-            'agg_cec_requests__g_contract__time_btw_requests__all__mean__1M',
-            'agg_cec_requests__g_contract__time_btw_requests__all__mean__2M',
-            'agg_cec_requests__g_contract__time_btw_requests__all__mean__3M',
-            'agg_cec_requests__g_contract__time_btw_requests__all__mean__4M',
-            'agg_cec_requests__g_contract__time_btw_requests__all__mean__5M',
-            'agg_cec_requests__g_contract__time_btw_requests__all__mean__6M',
-            'agg_cec_requests__g_contract__time_btw_requests__all__mean__7M',
-            'agg_cec_requests__g_contract__time_btw_requests__all__mean__8M',
-            'agg_cec_requests__g_contract__time_btw_requests__all__mean__12M',
-            'agg_cec_requests__g_contract__time_btw_requests__all__mean__ALL_TIME',
-            'agg_cec_requests__g_contract__created_dt__all__min__ALL_TIME',
-            'agg_cec_requests__g_contract__created_dt__accepted__min__ALL_TIME',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__1W',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__2W',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__4W',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__8W',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__26W',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__52W',
-            'agg_tender_proposal__g_contractor__id__ALL__countDistinct__ALL_TIME'
-        ]
-
-    def __preproc_data(self, data: pd.DataFrame) -> pd.DataFrame:
+    def preproc_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """ 
         Предобработка входных данных для предсказания:
         - Удаление ненужных колонок
@@ -144,63 +92,181 @@ class ScoringModel:
         - Создание расширенных признаков
         - Снижение использования памяти
         """
+        
+        return data
+    
+
+    def predict_base_model(self, test_df: pd.DataFrame) -> pd.DataFrame:
+        """ 
+        Предсказание вероятностей на основе предобработанных данных
+        с помощью блендинга базовых моделей.
+        """
+
+        data = test_df.copy()
+
         # Удаление колонок с пустыми или неинформативными данными
-        data = data.drop(columns=self.__empty_par)
+        data = data.drop(columns=self.__data_del_par)
 
         # Импутация отсутствующих значений
         data[self.__nan_par] = self.__imputer.transform(data[self.__nan_par])
+        print("imp")
+        
 
         # Создание временных признаков
-        data = self.__create_time_features(data, 'contract_date', 'report_date')
+        data = self.create_time_features(data, 'contract_date', 'report_date')
+        print("time")
 
         # Удаление колонок, не нужных для предсказания модели
-        data = data.drop(columns=['report_date', 'contract_date', 'date_range'])
-
-        # Удаление дополнительных колонок
-        data = data.drop(columns=self.__data_del_par)
+        data = data.drop(columns=['contract_date', 'contract_date', 'report_date'])
 
         # Создание расширенных признаков
-        data = self.__create_advanced_features(data)
+        data = self.create_advanced_features(data)
 
-        # Нормализация признака specialization_id
-        data['specialization_id'] = data['specialization_id'] / 100
+        data = self.work_graph(data)
 
         # Снижение использования памяти
-        data = self.__reduce_mem_usage(data)
+        data = self.reduce_mem_usage(data)
 
-        return data
-
-    def predict_scoring(self, data: pd.DataFrame) -> np.ndarray:
-        """ 
-        Предсказание оценки на основе предобработанных данных:
-        - Обработка входных данных
-        - Предсказание вероятностей с загруженной моделью 
-        """
-        # Предобработка данных
-        data = self.__preproc_data(data)
+        data = pd.get_dummies(data, columns=['specialization_id', 'project_id', 'building_id', 'contractor_id'], dtype=int)
+        null_cols = set(self.__data_columns) - set(data.columns)
+        data[list(null_cols)] = 0
 
         # Предсказание вероятностей для положительного класса
-        pred_model = self.__model.predict_proba(data)[:, 1]
-        pred_cat = self.__sub_model_cat.predict_proba(data)[:, 1]
-        pred_xgb = self.__sub_model_xgb.predict_proba(data)[:, 1]
+        pred_rfc = self.__sub_model_rfc.predict_proba(data[self.__final_cols])[:, 1]
+        pred_cat = self.__sub_model_cat.predict_proba(data[self.__final_cols])[:, 1]
+        pred_xgb = self.__sub_model_xgb.predict_proba(data[self.__final_cols])[:, 1]
 
         # Комбинирование предсказаний
-        pred = pred_model * 0.9 + pred_xgb * 0.05 + pred_cat * 0.05
+        pred = pred_rfc * 0.9 + pred_xgb * 0.05 + pred_cat * 0.05
 
-        return pred
+        result = pd.DataFrame({'contract_id': test_df['contract_id'], 'report_date': test_df['report_date'], 'score': pred})
+        result = result.merge(result.groupby('contract_id')['score'].max().reset_index(), how="left", on="contract_id")
+        result = result[['contract_id', 'report_date', 'score_y']].rename(columns={'score_y': 'score'})
 
-    @staticmethod
-    def __reduce_mem_usage(df: pd.DataFrame) -> pd.DataFrame:
-        """ 
-        Снижение использования памяти путем оптимизации типов данных колонок DataFrame.
+        return result
+
+    def predict_graph_scoring(self, test_df: pd.DataFrame, preds_df: pd.DataFrame) -> pd.DataFrame:
+        data = test_df.copy()
+        data = data.drop(columns=['contract_id', 'project_id', 'building_id'])
+        data[self.__nan_par] = self.__imputer.transform(data[self.__nan_par])
+        data.fillna(0, inplace=True)
+        data = data.drop(columns=self.__graph_del_col)
+        data = self.reduce_mem_usage(data)
+        data = data.join(preds_df, rsuffix="_r")
+        
+        unic_data = self.__unic_data_df
+        distance_dict = self.__distance_dict
+        unic_data_gb = unic_data.groupby(['contractor_id'], as_index=False).median()
+        res = []
+
+        to_cnt_i = list()
+        to_rs2_i = list()
+
+        data = data.set_index(['contractor_id', 'score'])[self.__graph_x_cols]
+
+        for i, ((cn_id, scr), sf) in tqdm(enumerate(data.iterrows()), total=len(data)):
+            if cn_id in distance_dict:
+                d = unic_data_gb[unic_data.contractor_id == distance_dict[cn_id][0]]
+                res2 = d.filter(like='contractor')
+                if len(res2) != 0:
+                    to_cnt_i.append(i)
+                    to_rs2_i.append(res2.index[0])
+
+            res.append(scr)
+        
+        res = np.array(res)
+        tcn_df = data.iloc[to_cnt_i].copy().reset_index()
+        tcn_df = tcn_df.filter(regex='^(?!.*contractor)', axis=1)
+        tcn_rsd = unic_data_gb.loc[to_rs2_i]
+        tcn_rsd = tcn_rsd.filter(like='contractor')      
+        tcn_df[tcn_rsd.columns] = tcn_rsd.reset_index()[tcn_rsd.columns]
+        preds_rfc = self.__rfc_graph_scoring.predict_proba(tcn_df[self.__graph_x_cols])[:, 1]
+        preds_all = np.max([preds_rfc, res[to_cnt_i]], axis=0)
+        res[to_cnt_i] = preds_all
+
+        preds_df['score'] = res
+        return preds_df
+
+    def predict_scoring(self, data: pd.DataFrame) -> np.ndarray:
+        preds_df = self.predict_base_model(data)
+        preds_df = self.predict_graph_scoring(data, preds_df)
+
+        return preds_df.score.values
+
+    # Функция для определения сезона по месяцу даты
+    # Принимает на вход объект даты (date) и возвращает строку с названием сезона
+    def get_season(self, date) -> str:
+        if date.month in [12, 1, 2]:
+            return 'winter'  # Зима: декабрь, январь, февраль
+        elif date.month in [3, 4, 5]:
+            return 'spring'  # Весна: март, апрель, май
+        elif date.month in [6, 7, 8]:
+            return 'summer'  # Лето: июнь, июль, август
+        else:
+            return 'autumn'  # Осень: сентябрь, октябрь, ноябрь
+
+    # Основная функция для добавления временных признаков в DataFrame
+    # df - входной DataFrame, start_col - столбец с начальной датой, end_col - столбец с конечной датой
+    def create_time_features(self, df: pd.DataFrame, start_col: str, end_col: str) -> pd.DataFrame:
+        # Преобразуем столбцы с датами в формат datetime для работы с ними как с датами
+        df[start_col] = pd.to_datetime(df[start_col])
+        df[end_col] = pd.to_datetime(df[end_col])
+        
+        # Создаем новый столбец, который содержит диапазон всех дат от начальной до конечной
+        df['date_range'] = df.apply(lambda row: pd.date_range(start=row[start_col], end=row[end_col]), axis=1)
+        
+        # Создаем столбец с общим количеством дней в диапазоне
+        df['total_days'] = df['date_range'].apply(len)
+        
+        # Считаем долю зимних дней в диапазоне и нормализуем на общее количество дней
+        df['winter'] = df['date_range'].apply(lambda dates: sum(self.get_season(date) == 'winter' for date in dates)) / df['total_days']
+        
+        # Считаем долю весенних дней в диапазоне и нормализуем на общее количество дней
+        df['spring'] = df['date_range'].apply(lambda dates: sum(self.get_season(date) == 'spring' for date in dates)) / df['total_days']
+        
+        # Считаем долю летних дней в диапазоне и нормализуем на общее количество дней
+        df['summer'] = df['date_range'].apply(lambda dates: sum(self.get_season(date) == 'summer' for date in dates)) / df['total_days']
+        
+        # Считаем долю осенних дней в диапазоне и нормализуем на общее количество дней
+        df['autumn'] = df['date_range'].apply(lambda dates: sum(self.get_season(date) == 'autumn' for date in dates)) / df['total_days']
+        
+        # Считаем долю праздничных дней в диапазоне на основе списка российских праздников
+        df['holidays'] = df['date_range'].apply(lambda dates: sum(date in self.__ru_holidays for date in dates)) / df['total_days']
+        
+        # Считаем долю выходных дней (суббота и воскресенье) и нормализуем на общее количество дней
+        df['weekends'] = df['date_range'].apply(lambda dates: sum(date.weekday() >= 5 for date in dates)) / df['total_days']
+        
+        # Считаем долю рабочих дней (понедельник-пятница) с учетом того, что праздники также считаются нерабочими
+        df['workdays'] = df['date_range'].apply(lambda dates: sum(date.weekday() < 5 for date in dates) - sum(date in self.__ru_holidays for date in dates)) / df['total_days']
+        
+        # Функция для подсчета количества "длинных" выходных
+        # Длинные выходные определяются как выходные дни, соединенные с праздничными днями
+        def count_long_weekends(dates):
+            long_weekends = 0
+            for i in range(1, len(dates)):  # Начинаем со второго дня диапазона
+                # Если предыдущий день был выходным, а текущий — праздничным, увеличиваем счетчик длинных выходных
+                if dates[i - 1].weekday() >= 5 and dates[i] in self.__ru_holidays:
+                    long_weekends += 1
+            return long_weekends
+        
+        # Добавляем столбец с долей длинных выходных дней в общем количестве дней
+        df['long_weekends'] = df['date_range'].apply(lambda dates: count_long_weekends(dates)) / df['total_days']
+        
+        # Нормализуем общее количество дней на 366, чтобы учесть високосные годы
+        df['total_days'] = df['total_days'] / 366
+
+        return df  # Возвращаем DataFrame с новыми признаками 
+
+    def reduce_mem_usage(self, df: pd.DataFrame) -> pd.DataFrame:
+        """ Проходит по всем столбцам DataFrame и изменяет тип данных
+            для уменьшения использования памяти.
         """
-        # Расчет и вывод начального использования памяти
         start_mem = df.memory_usage().sum() / 1024**2
         print('Memory usage of dataframe is {:.2f} MB'.format(start_mem))
 
-        # Итерация по колонкам и изменение типов данных
         for col in df.columns:
             col_type = df[col].dtype.name
+
             if col_type not in ['object', 'category', 'datetime64[ns, UTC]']:
                 c_min = df[col].min()
                 c_max = df[col].max()
@@ -221,65 +287,17 @@ class ScoringModel:
                     else:
                         df[col] = df[col].astype(np.float64)
 
-        # Расчет и вывод уменьшенного использования памяти
-        end_mem = df.memory_usage().sum() / 1024 ** 2
+        end_mem = df.memory_usage().sum() / 1024**2
         print('Memory usage after optimization is: {:.2f} MB'.format(end_mem))
         print('Decreased by {:.1f}%'.format(100 * (start_mem - end_mem) / start_mem))
 
         return df
 
-    @staticmethod
-    def __get_season(date: datetime) -> str:
-        """ Определение сезона для данной даты. """
-        if date.month in [12, 1, 2]:
-            return 'winter'
-        elif date.month in [3, 4, 5]:
-            return 'spring'
-        elif date.month in [6, 7, 8]:
-            return 'summer'
-        else:
-            return 'autumn'
-
-    def __create_time_features(self, df: pd.DataFrame, start_col: str, end_col: str) -> pd.DataFrame:
-        """ 
-        Создание временных признаков из колонок с начальной и конечной датами.
-        """
-        # Преобразование колонок дат в формат datetime
-        df[start_col] = pd.to_datetime(df[start_col])
-        df[end_col] = pd.to_datetime(df[end_col])
-
-        # Расчет диапазона дат между начальной и конечной датами
-        df['date_range'] = df.apply(lambda row: pd.date_range(start=row[start_col], end=row[end_col]), axis=1)
-        df['total_days'] = df['date_range'].apply(len)
-
-        # Расчет нормированных сезонных распределений
-        df['winter'] = df['date_range'].apply(lambda dates: sum(self.__get_season(date) == 'winter' for date in dates)) / df['total_days']
-        df['spring'] = df['date_range'].apply(lambda dates: sum(self.__get_season(date) == 'spring' for date in dates)) / df['total_days']
-        df['summer'] = df['date_range'].apply(lambda dates: sum(self.__get_season(date) == 'summer' for date in dates)) / df['total_days']
-        df['autumn'] = df['date_range'].apply(lambda dates: sum(self.__get_season(date) == 'autumn' for date in dates)) / df['total_days']
-
-        # Расчет нормированных количеств праздников и выходных
-        df['holidays'] = df['date_range'].apply(lambda dates: sum(date in self.__ru_holidays for date in dates)) / df['total_days']
-        df['weekends'] = df['date_range'].apply(lambda dates: sum(date.weekday() >= 5 for date in dates)) / df['total_days']
-        df['workdays'] = df['date_range'].apply(lambda dates: sum(date.weekday() < 5 for date in dates) - sum(date in self.__ru_holidays for date in dates)) / df['total_days']
-
-        # Подсчет длинных выходных
-        def count_long_weekends(dates):
-            long_weekends = 0
-            for i in range(1, len(dates)):
-                if dates[i - 1].weekday() >= 5 and dates[i] in self.__ru_holidays:
-                    long_weekends += 1
-            return long_weekends
-
-        df['long_weekends'] = df['date_range'].apply(lambda dates: count_long_weekends(dates)) / df['total_days']
-
-        # Нормализация общего количества дней в году
-        df['total_days'] = df['total_days'] / 366
-
-        return df    
-
-    @staticmethod
-    def __create_advanced_features(df: pd.DataFrame) -> pd.DataFrame:        
+    # Функция для создания дополнительных признаков на основе финансовых и других данных
+    def create_advanced_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        
+        # Финансовые коэффициенты
+        
         # Текущая ликвидность (Current Ratio)
         # Показывает отношение текущих активов компании к её краткосрочным обязательствам.
         # Формула: Текущие активы / Краткосрочные обязательства
@@ -357,4 +375,57 @@ class ScoringModel:
         # Делим изменение суммы контракта на количество контрактов, чтобы получить среднее изменение на контракт
         df['contract_change_per_contract'] = df['contract_sum_change'] / df['agg_all_contracts__g_contract__bit_da_guid__isMain__count__ALL_TIME']
         
+        return df  # Возвращаем DataFrame с новыми признаками 
+
+
+    def work_graph(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Создаем словари для contractor_id1
+        contractor1_group = self.__graph.groupby('contractor_id1')['Distance']
+        
+        contractor1_min = contractor1_group.min().to_dict()
+        contractor1_max = contractor1_group.max().to_dict()
+        contractor1_mean = contractor1_group.mean().to_dict()
+        contractor1_median = contractor1_group.median().to_dict()
+        contractor1_sum = contractor1_group.sum().to_dict()
+        contractor1_count = contractor1_group.count().to_dict()
+
+        # Создаем словари для contractor_id2
+        contractor2_group = self.__graph.groupby('contractor_id2')['Distance']
+        
+        contractor2_min = contractor2_group.min().to_dict()
+        contractor2_max = contractor2_group.max().to_dict()
+        contractor2_mean = contractor2_group.mean().to_dict()
+        contractor2_median = contractor2_group.median().to_dict()
+        contractor2_sum = contractor2_group.sum().to_dict()
+        contractor2_count = contractor2_group.count().to_dict()
+
+        # Используем словари для ускорения поиска
+        df['Distance_to_contractor_min'] = df['contractor_id'].map(contractor1_min).fillna(-1)
+        df['Distance_to_contractor_max'] = df['contractor_id'].map(contractor1_max).fillna(-1)
+        df['Distance_to_contractor_mean'] = df['contractor_id'].map(contractor1_mean).fillna(-1)
+        df['Distance_to_contractor_median'] = df['contractor_id'].map(contractor1_median).fillna(-1)
+        df['Distance_to_contractor_sum'] = df['contractor_id'].map(contractor1_sum).fillna(-1)
+        df['Distance_to_contractor_count'] = df['contractor_id'].map(contractor1_count).fillna(0)
+        
+        df['Distance_from_contractor_min'] = df['contractor_id'].map(contractor2_min).fillna(-1)
+        df['Distance_from_contractor_max'] = df['contractor_id'].map(contractor2_max).fillna(-1)
+        df['Distance_from_contractor_mean'] = df['contractor_id'].map(contractor2_mean).fillna(-1)
+        df['Distance_from_contractor_median'] = df['contractor_id'].map(contractor2_median).fillna(-1)
+        df['Distance_from_contractor_sum'] = df['contractor_id'].map(contractor2_sum).fillna(-1)
+        df['Distance_from_contractor_count'] = df['contractor_id'].map(contractor2_count).fillna(0)
+
         return df
+	
+# Used for testing purpose
+def _test():
+    test_df = pd.read_csv(Path(__file__).parent / "../test2_X.csv")
+    subm_df = pd.read_csv(Path(__file__).parent / "../subm.csv").drop(columns=["Unnamed: 0"])
+    model = ScoringModel(Path(__file__).parent / "../weights")
+    preds = model.predict_graph_scoring(test_df, subm_df)
+    subm = preds
+    # subm = pd.DataFrame({"contract_id": test_df['contract_id'], 'report_date': test_df['report_date'], 'score': preds.score})
+    print(subm)
+    subm.to_csv(Path(__file__).parent / "../submm.csv", index=False)
+    
+if __name__ == "__main__":
+    _test()
