@@ -2,12 +2,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 class Settings(BaseSettings):
-	catboost_model_path: str = ""
-	scoring_model_path: str = ""
-	scoring_cbc_path: str = ""
-	scoring_xgbc_path: str = ""
-	scoring_mean_median_imputer_path: str = ""
+    weights_path: str = ""
 
 @lru_cache
 def get_settings():
-	return Settings()
+    return Settings()
