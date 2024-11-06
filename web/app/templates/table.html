@@ -76,7 +76,7 @@
                 else {
                     tBody += '<tr>';
                 }
-                tBody += '<td>' + line.contract_id + '</td>' +
+                tBody += '<td><a href="' + window.location.href + '/' + line.contract_id + '">' + line.contract_id + '</a></td>' +
                          '<td>' + line.report_date + '</td>' +
                          '<td>' + line.score + '%</td>' +
                          '</tr>';

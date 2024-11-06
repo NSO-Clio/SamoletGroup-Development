@@ -26,6 +26,12 @@ class Model:
 		Makes prediction and returns the result.
 		"""
 		return self.model.predict_scoring(Xdf)
+	
+	def explain_rows(self, Xdf: pd.DataFrame) -> list[str]:
+		"""
+		Calculate the explanations of predictions.
+		"""
+		return self.model.explain_all(Xdf)
 
 	def __call__(self, Xdf: pd.DataFrame) -> np.ndarray:
 		return self.predict(Xdf)
@@ -65,6 +71,13 @@ class Predictor():
 		), results))
 		
 		return results_pr
+	
+	def explain(self, input_df: pd.DataFrame) -> list[dict]:
+		if not self.validate_input(input_df):
+			raise ProcessingInputInvalid()
+
+		exps = self.model.explain_rows(input_df)
+		return exps
 
 	def validate_input(self, input_df: pd.DataFrame) -> bool:
 		if not np.array_equal(input_df.columns, DATA_ALLOWED_COLUMNS):

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLIO</title>
+    <link rel="icon" href="{{ url_for('static', filename='icon.png') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body id="table-body">
+    <div class="table_container">
+        <div class="nav_buttons">
+            <a href="."><img src="{{ url_for('static', filename='exit.png') }}" height=25/></a>
+            <a href="/tickets/{{ ticket_id }}/{{contract_id}}.json"><img src="{{ url_for('static', filename='downloads.png') }}" height=25/></a>
+        </div>
+        <h2>Отчёт по контракту {{explanations[0]['contract_id']}}</h2>
+	    <div class="explanations">
+		{% for exp in explanations %}
+                <hr style="margin-top: 50px; margin-bottom: 50px"/>
+                <div class="exp">
+                    <div class="exp_head" style="font-weight: 700">
+                        <div class="contract">Contract id: {{exp['contract_id']}} </div>
+                        <div class="report_date">Report date: {{exp['report_date']}} </div>
+                        <div class="predictions">
+                            <div class="neg_pred">Probability of no default: <span style="background: #1be31b">{{exp['predict_score_negative']}}</span></div>
+                            <div class="pos_pred">Probability of default: <span style="background: #ff4a4a">{{exp['predict_score_positive']}}</span></div>
+                        </div>
+                    </div>
+                    <table class="col_exps">
+                        <tr>
+                            <th>column name</th>
+                            <th>importance</th>
+                            <th>real value</th>
+                            <th>criterion</th>
+                        </tr>
+                        {% for ce in exp['columns_explanation'] %}
+                            <tr>
+                                <td style='word-break: break-all'>{{ce['column_name']}}</td>
+                                <td style="background: {{'#1be31b'  if ce['importance'] < 0 else '#ff4a4a'}}">{{"{:.4f}".format(ce['importance'])}}</td>
+                                <td><strong>{{"{:.2f}".format(ce['real_value'])}}</strong></td>
+                                <td style='white-space: nowrap'>{{"{:.2f} <=".format(ce['more_than']) if ce['more_than'] != None}} <strong>{{"{:.2f}".format(ce['real_value'])}}</strong> {{" <= {:.2f}".format(ce['less_than']) if ce['less_than'] != None}}</td>                            
+                            </tr>
+                        {% endfor %}
+                    </table>
+                </div>
+	    {% endfor %}
+	</div>
+    </div>
+</body>
+</html>

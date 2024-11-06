@@ -24,9 +24,12 @@ from . import modelGlobs
 from datetime import datetime, timedelta
 import calendar
 import holidays
+import lime.lime_tabular
+from typing import Any
 
 import warnings
 from sklearn.exceptions import ConvergenceWarning
+import re
 
 # Игнорирование предупреждений
 warnings.simplefilter('ignore')
@@ -37,50 +40,55 @@ warnings.filterwarnings("ignore", category=ConvergenceWarning)
 seed = 42
 np.random.seed(seed)
 
-
 class ScoringModel:
     def __init__(self, weights_path: Path) -> None:
         """ Инициализация модели ScoringModel: загрузка предобученной модели и импера. """
-        
         # Путь к сохраненной модели и имперу
         sub_model_rfc_path = weights_path / "RandomForestClassifier_scoring.pickle"
         sub_model_cat_path = weights_path / "CatBoostClassifier_scoring.pickle"
         sub_model_xgb_path = weights_path / "XGBClassifier_scoring.pickle"
         meanMedianImputer_path = weights_path / "MeanMedianImputer.pickle"
+        meanMedianImputer_sub_path = weights_path / "MeanMedianImputer_sub_model.pickle"
         graph_path = weights_path / "graph.csv"
         data_columns_path = weights_path / "data_columns.json"
         rfc_graph_scoring_path = weights_path / "RandomForestClassifier_SUB_model_scoring.pickle"
         unic_data_path = weights_path / "unic_data.csv"
         distance_dict_path = weights_path / "distance_dict.json"
+        train_prf_path = weights_path / "train_prf.csv"
 
         # Загрузка модели и импутера из файлов
         with open(sub_model_rfc_path, "rb") as fd:
-            self.__sub_model_rfc = pickle.load(fd)
+            self.sub_model_rfc = pickle.load(fd)
         with open(sub_model_cat_path, "rb") as fd:
-            self.__sub_model_cat = pickle.load(fd)
+            self.sub_model_cat = pickle.load(fd)
         with open(sub_model_xgb_path, "rb") as fd:
-            self.__sub_model_xgb = pickle.load(fd)
+            self.sub_model_xgb = pickle.load(fd)
         with open(meanMedianImputer_path, "rb") as fd:
-            self.__imputer = pickle.load(fd)
+            self.imputer = pickle.load(fd)
+        with open(meanMedianImputer_sub_path, "rb") as fd:
+            self.imputer_sub = pickle.load(fd)
         with open(rfc_graph_scoring_path, "rb") as fd:
-            self.__rfc_graph_scoring = pickle.load(fd)
-        self.__graph = pd.read_csv(graph_path).drop(columns=['Unnamed: 0'])
+            self.rfc_graph_scoring = pickle.load(fd)
+        self.graph = pd.read_csv(graph_path).drop(columns=['Unnamed: 0'])
         with open(data_columns_path, "r") as fd:
-            self.__data_columns = list(json.load(fd).keys())
-        self.__unic_data_df = pd.read_csv(unic_data_path)
+            self.data_columns = list(json.load(fd).keys())
+        self.unic_data_df = pd.read_csv(unic_data_path)
         with open(distance_dict_path, "r") as fd:
-            self.__distance_dict: dict = json.load(fd)
-            self.__distance_dict = {int(k): v for k, v in self.__distance_dict.items()}
+            self.distance_dict: dict = json.load(fd)
+            self.distance_dict = {int(k): v for k, v in self.distance_dict.items()}
+        self.train_prf = pd.read_csv(train_prf_path)
 
 
-        self.__data_del_par = modelGlobs.inference_data_del_par
-        self.__nan_par = modelGlobs.inference_nan_par
-        self.__final_cols = modelGlobs.inference_final_cols
-        self.__graph_del_col = modelGlobs.graph_del_col
-        self.__graph_x_cols = modelGlobs.graph_x_cols
+        self.data_del_par = modelGlobs.inference_data_del_par
+        self.nan_par = modelGlobs.inference_nan_par
+        self.final_cols = modelGlobs.inference_final_cols
+        self.graph_del_col = modelGlobs.graph_del_col
+        self.graph_x_cols = modelGlobs.graph_x_cols
+        self.explainer = lime.lime_tabular.LimeTabularExplainer(
+            self.train_prf[self.final_cols].to_numpy(), feature_names=self.final_cols)
 
         # Инициализация российских праздников
-        self.__ru_holidays = holidays.Russia()
+        self.ru_holidays = holidays.Russia()
 
     def preproc_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """ 
@@ -96,28 +104,17 @@ class ScoringModel:
         return data
     
 
-    def predict_base_model(self, test_df: pd.DataFrame) -> pd.DataFrame:
-        """ 
-        Предсказание вероятностей на основе предобработанных данных
-        с помощью блендинга базовых моделей.
-        """
-
+    def preprocess_base_model(self, test_df: pd.DataFrame):
         data = test_df.copy()
 
         # Удаление колонок с пустыми или неинформативными данными
-        data = data.drop(columns=self.__data_del_par)
+        data = data.drop(columns=self.data_del_par)
 
         # Импутация отсутствующих значений
-        data[self.__nan_par] = self.__imputer.transform(data[self.__nan_par])
-        print("imp")
-        
+        data[self.nan_par] = self.imputer.transform(data[self.nan_par])
 
         # Создание временных признаков
         data = self.create_time_features(data, 'contract_date', 'report_date')
-        print("time")
-
-        # Удаление колонок, не нужных для предсказания модели
-        data = data.drop(columns=['contract_date', 'contract_date', 'report_date'])
 
         # Создание расширенных признаков
         data = self.create_advanced_features(data)
@@ -128,41 +125,47 @@ class ScoringModel:
         data = self.reduce_mem_usage(data)
 
         data = pd.get_dummies(data, columns=['specialization_id', 'project_id', 'building_id', 'contractor_id'], dtype=int)
-        null_cols = set(self.__data_columns) - set(data.columns)
+        null_cols = set(self.data_columns) - set(data.columns)
         data[list(null_cols)] = 0
 
+        return data
+
+    def predict_base_model(self, data: pd.DataFrame) -> pd.DataFrame:
+        """ 
+        Предсказание вероятностей на основе предобработанных данных
+        с помощью блендинга базовых моделей.
+        """
+
         # Предсказание вероятностей для положительного класса
-        pred_rfc = self.__sub_model_rfc.predict_proba(data[self.__final_cols])[:, 1]
-        pred_cat = self.__sub_model_cat.predict_proba(data[self.__final_cols])[:, 1]
-        pred_xgb = self.__sub_model_xgb.predict_proba(data[self.__final_cols])[:, 1]
+        pred_rfc = self.sub_model_rfc.predict_proba(data[self.final_cols])[:, 1]
+        pred_cat = self.sub_model_cat.predict_proba(data[self.final_cols])[:, 1]
+        pred_xgb = self.sub_model_xgb.predict_proba(data[self.final_cols])[:, 1]
 
         # Комбинирование предсказаний
         pred = pred_rfc * 0.9 + pred_xgb * 0.05 + pred_cat * 0.05
 
-        result = pd.DataFrame({'contract_id': test_df['contract_id'], 'report_date': test_df['report_date'], 'score': pred})
-        result = result.merge(result.groupby('contract_id')['score'].max().reset_index(), how="left", on="contract_id")
-        result = result[['contract_id', 'report_date', 'score_y']].rename(columns={'score_y': 'score'})
-
+        result = pd.DataFrame({'contract_id': data['contract_id'], 'report_date': data['report_date'], 'score': pred})
+        
         return result
 
     def predict_graph_scoring(self, test_df: pd.DataFrame, preds_df: pd.DataFrame) -> pd.DataFrame:
         data = test_df.copy()
         data = data.drop(columns=['contract_id', 'project_id', 'building_id'])
-        data[self.__nan_par] = self.__imputer.transform(data[self.__nan_par])
+        data[self.nan_par] = self.imputer_sub.transform(data[self.nan_par])
         data.fillna(0, inplace=True)
-        data = data.drop(columns=self.__graph_del_col)
+        data = data.drop(columns=self.graph_del_col)
         data = self.reduce_mem_usage(data)
         data = data.join(preds_df, rsuffix="_r")
         
-        unic_data = self.__unic_data_df
-        distance_dict = self.__distance_dict
+        unic_data = self.unic_data_df
+        distance_dict = self.distance_dict
         unic_data_gb = unic_data.groupby(['contractor_id'], as_index=False).median()
         res = []
 
         to_cnt_i = list()
         to_rs2_i = list()
 
-        data = data.set_index(['contractor_id', 'score'])[self.__graph_x_cols]
+        data = data.set_index(['contractor_id', 'score'])[self.graph_x_cols]
 
         for i, ((cn_id, scr), sf) in tqdm(enumerate(data.iterrows()), total=len(data)):
             if cn_id in distance_dict:
@@ -180,19 +183,136 @@ class ScoringModel:
         tcn_rsd = unic_data_gb.loc[to_rs2_i]
         tcn_rsd = tcn_rsd.filter(like='contractor')      
         tcn_df[tcn_rsd.columns] = tcn_rsd.reset_index()[tcn_rsd.columns]
-        preds_rfc = self.__rfc_graph_scoring.predict_proba(tcn_df[self.__graph_x_cols])[:, 1]
+        preds_rfc = self.rfc_graph_scoring.predict_proba(tcn_df[self.graph_x_cols])[:, 1]
         preds_all = np.max([preds_rfc, res[to_cnt_i]], axis=0)
         res[to_cnt_i] = preds_all
 
         preds_df['score'] = res
         return preds_df
 
-    def predict_scoring(self, data: pd.DataFrame) -> np.ndarray:
-        preds_df = self.predict_base_model(data)
+    def predict_result(self, data: pd.DataFrame, negotiate: bool = False) -> pd.DataFrame:
+        data_prf = self.preprocess_base_model(data)
+        preds_df = self.predict_base_model(data_prf)
         preds_df = self.predict_graph_scoring(data, preds_df)
 
-        return preds_df.score.values
+        preds_df = preds_df.merge(preds_df.groupby('contract_id')['score'].max().reset_index(), how="left", on="contract_id")
+        preds_df = preds_df[['contract_id', 'report_date', 'score_y']].rename(columns={'score_y': 'score'})
 
+        if negotiate:
+            preds_df['score'] = 1 - preds_df['score']
+
+        return preds_df
+
+    
+    def predict_scoring(self, data: pd.DataFrame, negotiate: bool = False) -> np.ndarray:
+        return self.predict_result(data, negotiate)['score'].values
+
+    def explanation_col_normalizer(self, condition):
+        """
+        Converts lime's as_list() column names to normal output: (column_name, more_than, less_than) as more_than < column_name < less_than 
+        Returns more_than and less_than are float values or None if inf
+        """
+        pattern = r'(((?P<conv_1>-?\d*\.?\d*)\s*(?P<sign_1>(<=|>=|>|<)))?\s*(?P<column>\w+)\s*((?P<sign_2>(<=|>=|>|<))\s*(?P<conv_2>-?\d*\.?\d*))?)'
+
+        match = re.search(pattern, condition)
+        if match:
+            conv1 = match.group('conv_1')
+            sign1 = match.group('sign_1')
+            conv2 = match.group('conv_2')
+            sign2 = match.group('sign_2')
+            column_name = match.group('column')
+
+            more_than = -np.inf
+            less_than = np.inf
+
+            if sign1 in ['<', '<=']:
+                if conv1 == None or conv1 == '':
+                    conv1 = float("-inf")
+                else:
+                    conv1 = float(conv1)
+
+                more_than = max(more_than, conv1)
+            elif sign1 in ['>', '>=']:
+                if conv1 == None or conv1 == '':
+                    conv1 = float("inf")
+                else:
+                    conv1 = float(conv1)
+
+                less_than = min(less_than, conv1)
+
+            if sign2 in ['<', '<=']:
+                if conv2 == None or conv2 == '':
+                    conv2 = float("inf")
+                else:
+                    conv2 = float(conv2)
+
+                less_than = min(less_than, conv2)
+            elif sign2 in ['>', '>=']:
+                if conv2 == None or conv2 == '':
+                    conv2 = float("-inf")
+                else:
+                    conv2 = float(conv2)
+
+                more_than = max(more_than, conv2)
+            
+            if more_than == float("-inf"):
+                more_than = None
+            
+            if less_than == float("inf"):
+                less_than = None
+
+            return (column_name, more_than, less_than)
+        else:
+            return ("", None, None)
+    
+    def filter_explanation_columns(self, col_name: str):
+        return not col_name.startswith(("contractor_id", "building_id", "project_id", "specialization_id"))
+    
+    def explanation_to_dict(self, exp: Any, row: pd.Series) -> dict:
+        vals = row[list(filter(self.filter_explanation_columns, self.final_cols))].to_dict()
+        predict = exp.predict_proba
+        contract_id = row['contract_id']
+        report_date = row['report_date']
+
+        def expli_mapper(x):
+            nm = self.explanation_col_normalizer(x[0])
+            return {
+                "column_name": nm[0],
+                "more_than": nm[1],
+                "less_than": nm[2],
+                "importance": x[1]
+            }
+        
+        cols_list = exp.as_list()
+        cols_list = list(filter(lambda x: self.filter_explanation_columns(x['column_name']), map(lambda x: expli_mapper(x), cols_list)))
+        for cd in cols_list:
+            cd['real_value'] = vals[cd['column_name']]
+
+        exp_dict = {
+            "contract_id": contract_id,
+            "report_date": report_date,
+            "predict_score_negative": predict[0],
+            "predict_score_positive": predict[1],
+            "columns_explanation": cols_list
+        }
+
+        return exp_dict
+
+    
+    def explain_row(self, row: pd.Series) -> dict:
+        exp = self.explainer.explain_instance(row[self.final_cols].values, self.sub_model_rfc.predict_proba, num_features=len(self.final_cols))
+        return self.explanation_to_dict(exp, row)
+    
+    def explain_(self, rows: pd.DataFrame) -> list[dict]:
+        explains = [self.explain_row(row) for _, row in rows.iterrows()]
+        return explains
+    
+    def explain_all(self, data: pd.DataFrame) -> list[dict]:
+        data_prf = self.preprocess_base_model(data)
+        explains = self.explain_(data_prf)
+
+        return explains 
+    
     # Функция для определения сезона по месяцу даты
     # Принимает на вход объект даты (date) и возвращает строку с названием сезона
     def get_season(self, date) -> str:
@@ -231,13 +351,13 @@ class ScoringModel:
         df['autumn'] = df['date_range'].apply(lambda dates: sum(self.get_season(date) == 'autumn' for date in dates)) / df['total_days']
         
         # Считаем долю праздничных дней в диапазоне на основе списка российских праздников
-        df['holidays'] = df['date_range'].apply(lambda dates: sum(date in self.__ru_holidays for date in dates)) / df['total_days']
+        df['holidays'] = df['date_range'].apply(lambda dates: sum(date in self.ru_holidays for date in dates)) / df['total_days']
         
         # Считаем долю выходных дней (суббота и воскресенье) и нормализуем на общее количество дней
         df['weekends'] = df['date_range'].apply(lambda dates: sum(date.weekday() >= 5 for date in dates)) / df['total_days']
         
         # Считаем долю рабочих дней (понедельник-пятница) с учетом того, что праздники также считаются нерабочими
-        df['workdays'] = df['date_range'].apply(lambda dates: sum(date.weekday() < 5 for date in dates) - sum(date in self.__ru_holidays for date in dates)) / df['total_days']
+        df['workdays'] = df['date_range'].apply(lambda dates: sum(date.weekday() < 5 for date in dates) - sum(date in self.ru_holidays for date in dates)) / df['total_days']
         
         # Функция для подсчета количества "длинных" выходных
         # Длинные выходные определяются как выходные дни, соединенные с праздничными днями
@@ -245,7 +365,7 @@ class ScoringModel:
             long_weekends = 0
             for i in range(1, len(dates)):  # Начинаем со второго дня диапазона
                 # Если предыдущий день был выходным, а текущий — праздничным, увеличиваем счетчик длинных выходных
-                if dates[i - 1].weekday() >= 5 and dates[i] in self.__ru_holidays:
+                if dates[i - 1].weekday() >= 5 and dates[i] in self.ru_holidays:
                     long_weekends += 1
             return long_weekends
         
@@ -279,7 +399,7 @@ class ScoringModel:
                         df[col] = df[col].astype(np.int32)
                     elif c_min > np.iinfo(np.int64).min and c_max < np.iinfo(np.int64).max:
                         df[col] = df[col].astype(np.int64)
-                else:
+                elif str(col_type)[:5] == 'float':
                     if c_min > np.finfo(np.float16).min and c_max < np.finfo(np.float16).max:
                         df[col] = df[col].astype(np.float16)
                     elif c_min > np.finfo(np.float32).min and c_max < np.finfo(np.float32).max:
@@ -380,7 +500,7 @@ class ScoringModel:
 
     def work_graph(self, df: pd.DataFrame) -> pd.DataFrame:
         # Создаем словари для contractor_id1
-        contractor1_group = self.__graph.groupby('contractor_id1')['Distance']
+        contractor1_group = self.graph.groupby('contractor_id1')['Distance']
         
         contractor1_min = contractor1_group.min().to_dict()
         contractor1_max = contractor1_group.max().to_dict()
@@ -390,7 +510,7 @@ class ScoringModel:
         contractor1_count = contractor1_group.count().to_dict()
 
         # Создаем словари для contractor_id2
-        contractor2_group = self.__graph.groupby('contractor_id2')['Distance']
+        contractor2_group = self.graph.groupby('contractor_id2')['Distance']
         
         contractor2_min = contractor2_group.min().to_dict()
         contractor2_max = contractor2_group.max().to_dict()
@@ -415,15 +535,19 @@ class ScoringModel:
         df['Distance_from_contractor_count'] = df['contractor_id'].map(contractor2_count).fillna(0)
 
         return df
-	
+
+    @property
+    def feature_importances_(self):
+        return pd.DataFrame({"feature": self.final_cols, "importance": self.sub_model_rfc.feature_importances_}).sort_values("importance", ascending=False)
+
 # Used for testing purpose
 def _test():
     test_df = pd.read_csv(Path(__file__).parent / "../test2_X.csv")
-    subm_df = pd.read_csv(Path(__file__).parent / "../subm.csv").drop(columns=["Unnamed: 0"])
+    # subm_df = pd.read_csv(Path(__file__).parent / "../subm.csv").drop(columns=["Unnamed: 0"])
     model = ScoringModel(Path(__file__).parent / "../weights")
     preds = model.predict_graph_scoring(test_df, subm_df)
     subm = preds
-    # subm = pd.DataFrame({"contract_id": test_df['contract_id'], 'report_date': test_df['report_date'], 'score': preds.score})
+    subm = pd.DataFrame({"contract_id": test_df['contract_id'], 'report_date': test_df['report_date'], 'score': preds.score})
     print(subm)
     subm.to_csv(Path(__file__).parent / "../submm.csv", index=False)
     
